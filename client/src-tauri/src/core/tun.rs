@@ -56,6 +56,25 @@ mod tests {
     use crate::core::invite::parse_invitation;
 
     #[test]
+    #[ignore = "requires SING_BOX_TEST_BINARY pointing to the pinned sing-box executable"]
+    fn generated_config_passes_sing_box_validation() {
+        let profile = parse_invitation("vless://11111111-1111-4111-8111-111111111111@203.0.113.10:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.example.com&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=753bd0a1&type=tcp#test").unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        serde_json::to_writer(file.as_file(), &build_tun_config(&profile)).unwrap();
+        let output = std::process::Command::new(std::env::var_os("SING_BOX_TEST_BINARY").unwrap())
+            .arg("check")
+            .arg("--config")
+            .arg(file.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "sing-box rejected config: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn tunnel_captures_both_ip_families_and_proxies_dns_without_a_routing_loop() {
         let profile = parse_invitation("vless://11111111-1111-4111-8111-111111111111@203.0.113.10:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.example.com&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=753bd0a1&type=tcp#test").unwrap();
         let config = build_tun_config(&profile);

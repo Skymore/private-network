@@ -36,7 +36,10 @@ jobs:
           npm run prepare:tun
           cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
           if ($LASTEXITCODE -ne 0) { throw "Rust tests failed" }
-          npm run tauri -- build --target x86_64-pc-windows-msvc
+          $env:SING_BOX_TEST_BINARY = (Resolve-Path src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe).Path
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib generated_config_passes_sing_box_validation -- --ignored
+          if ($LASTEXITCODE -ne 0) { throw "TUN core rejected generated config" }
+          node node_modules/@tauri-apps/cli/tauri.js build --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "Windows build failed" }
       - name: Install and exercise actual global client
         shell: pwsh

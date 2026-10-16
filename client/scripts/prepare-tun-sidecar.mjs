@@ -31,6 +31,7 @@ if (target === "x86_64-pc-windows-msvc") {
   const output = join(binaries, `sing-box-${target}.exe`)
   writeFileSync(output, executable)
   writeFileSync(join(notices, "sing-box-LICENSE.txt"), license)
+  writeFileSync(join(notices, "GPL-3.0.txt"), readFileSync(join(root, "licenses", "GPL-3.0.txt")))
   writeFileSync(join(notices, "SOURCE.txt"), `Unmodified sing-box ${version}\nSource: https://github.com/SagerNet/sing-box/tree/v${version}\nArchive: https://github.com/SagerNet/sing-box/archive/refs/tags/v${version}.tar.gz\nLicense: GPL-3.0-or-later, with upstream additional terms (see sing-box-LICENSE.txt).\nWintun is embedded by sing-tun; no separate driver download is required.\n`)
   if (process.platform === "win32") execFileSync(output, ["version"], { stdio: "inherit", timeout: 10_000 })
   console.log(`Prepared sing-box ${version} for Windows TUN`)
