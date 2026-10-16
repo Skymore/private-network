@@ -10,7 +10,7 @@ on:
         type: string
   push:
     branches: [main]
-    paths: ["client/**", "scripts/smoke/*tun*", ".github/workflows/windows-tun.yml"]
+    paths: ["client/**", ".github/workflows/windows-tun.yml"]
 
 permissions:
   contents: read

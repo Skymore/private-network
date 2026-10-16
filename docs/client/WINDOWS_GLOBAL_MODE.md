@@ -7,7 +7,10 @@ bundle and node protocol stay the same. macOS retains its system-proxy runtime.
 
 The existing supervisor starts the bundled, unmodified sing-box 1.14.3 for `tun`,
 and Xray for `system` and `manual`. Both expose the same loopback proxy ports.
-The TUN configuration is generated from the selected ConnectionProfile; it captures
+The TUN configuration explicitly uses gVisor. In Windows acceptance the default system
+TCP stack stalled while DNS worked; the same transport using gVisor delivered the
+server-first TCP greeting. There is no automatic stack fallback.
+The configuration is generated from the selected ConnectionProfile; it captures
 IPv4/IPv6 TCP and UDP, hijacks port 53, and sends DNS over HTTPS through the VLESS
 outbound. LAN destinations stay direct. `auto_detect_interface` binds outbound
 connections to the real network interface to avoid routing loops. The node hostname

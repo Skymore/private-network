@@ -18,7 +18,8 @@ pub fn build_tun_config(profile: &ConnectionProfile) -> Value {
             {
                 "type": "tun", "tag": "tun-in", "interface_name": "PrivateNetwork",
                 "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
-                "mtu": 1400, "auto_route": true, "strict_route": true
+                "mtu": 1400, "auto_route": true, "strict_route": true,
+                "stack": "gvisor"
             },
             { "type": "socks", "listen": "127.0.0.1", "listen_port": DEFAULT_SOCKS_PORT },
             { "type": "http", "listen": "127.0.0.1", "listen_port": DEFAULT_HTTP_PORT }
@@ -83,6 +84,7 @@ mod tests {
             2
         );
         assert_eq!(config["inbounds"][0]["strict_route"], true);
+        assert_eq!(config["inbounds"][0]["stack"], "gvisor");
         assert_eq!(config["route"]["auto_detect_interface"], true);
         assert_eq!(config["dns"]["servers"][0]["detour"], "proxy");
         assert_eq!(config["route"]["rules"][0]["action"], "hijack-dns");
