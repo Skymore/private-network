@@ -27,7 +27,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: client/src-tauri -> ../../target/cargo
-          save-if: ${{ !cancelled() }}
+          save-if: "true"
       - name: Build Windows installer and test runtime
         working-directory: client
         shell: pwsh
