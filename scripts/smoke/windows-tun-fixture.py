@@ -30,17 +30,22 @@ def serve_tls():
     context.maximum_version = ssl.TLSVersion.TLSv1_3
     context.set_alpn_protocols(["h2", "http/1.1"])
     context.load_cert_chain(os.environ["TUN_FIXTURE_CERT"], os.environ["TUN_FIXTURE_KEY"])
+
+    def handshake(connection):
+        try:
+            connection.settimeout(3)
+            with context.wrap_socket(connection, server_side=True) as secure:
+                secure.recv(1024)
+        except (OSError, ssl.SSLError):
+            connection.close()
+
     with socket.socket() as server:
         server.bind(("127.0.0.1", 15444))
         server.listen()
         while True:
             connection, _ = server.accept()
-            try:
-                with context.wrap_socket(connection, server_side=True) as secure:
-                    secure.settimeout(2)
-                    secure.recv(1024)
-            except (OSError, ssl.SSLError):
-                connection.close()
+            # REALITY probes may leave the target handshake unfinished.
+            threading.Thread(target=handshake, args=(connection,), daemon=True).start()
 
 
 threading.Thread(target=serve_tcp, daemon=True).start()
