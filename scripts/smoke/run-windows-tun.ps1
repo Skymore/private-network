@@ -149,6 +149,7 @@ try {
   if (Test-Path $runtimeConfig) {
     $diagnostic = Get-Content $runtimeConfig -Raw | ConvertFrom-Json
     $diagnostic.log.level = "debug"
+    $diagnostic.inbounds[0] | Add-Member -NotePropertyName stack -NotePropertyValue "gvisor" -Force
     if ($client -and -not $client.HasExited) { Stop-Process -Id $client.Id -Force; Start-Sleep -Seconds 2 }
     $diagnosticPath = Join-Path $work "diagnostic.json"
     $diagnostic | ConvertTo-Json -Depth 20 | Set-Content $diagnosticPath -Encoding utf8
@@ -156,7 +157,17 @@ try {
     try {
       Start-Sleep -Seconds 3
       $test = [Net.Sockets.TcpClient]::new()
-      try { [void]$test.ConnectAsync("93.184.215.14", 15555).Wait(6000) } catch { }
+      $experiment = @{ connected = $false; greeting = $null; error = $null }
+      try {
+        $experiment.connected = $test.ConnectAsync("93.184.215.14", 15555).Wait(6000)
+        if ($experiment.connected) {
+          $test.ReceiveTimeout = 3000
+          $reader = [IO.StreamReader]::new($test.GetStream())
+          $experiment.greeting = $reader.ReadLine()
+          $reader.Dispose()
+        }
+      } catch { $experiment.error = $_.Exception.Message }
+      $experiment | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory "gvisor-experiment.json")
       $test.Dispose()
     } finally {
       if (-not $debugCore.HasExited) { Stop-Process -Id $debugCore.Id -Force }
