@@ -73,7 +73,7 @@ try {
   if (-not $private -or -not $public) { throw "Cannot create ephemeral REALITY test keys" }
   $uuid = [guid]::NewGuid().ToString()
   $config = @{
-    log = @{ loglevel = "warning" }
+    log = @{ loglevel = "debug" }
     inbounds = @(@{
       listen = "127.0.0.1"; port = 15443; protocol = "vless"
       settings = @{ clients = @(@{ id = $uuid; flow = "xtls-rprx-vision" }); decryption = "none" }
@@ -135,6 +135,28 @@ try {
   $proof.crashCleanup = $true
   Resolve-DnsName "www.microsoft.com" -Type A -DnsOnly -ErrorAction Stop | Out-Null
   $proof | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory "results.json") -Encoding utf8
+} catch {
+  $failure = $_
+  Get-NetRoute | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutputDirectory "routes.json")
+  Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, ifIndex | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory "adapters.json")
+  $runtimeConfig = Join-Path $env:APPDATA "com.sky.realityclient/runtime/xray-config.json"
+  if (Test-Path $runtimeConfig) {
+    $diagnostic = Get-Content $runtimeConfig -Raw | ConvertFrom-Json
+    $diagnostic.log.level = "debug"
+    if ($client -and -not $client.HasExited) { Stop-Process -Id $client.Id -Force; Start-Sleep -Seconds 2 }
+    $diagnosticPath = Join-Path $work "diagnostic.json"
+    $diagnostic | ConvertTo-Json -Depth 20 | Set-Content $diagnosticPath -Encoding utf8
+    $debugCore = Start-Process (Join-Path $installLocation "sing-box.exe") -ArgumentList "run", "--config", $diagnosticPath -PassThru -RedirectStandardError (Join-Path $OutputDirectory "tun-core.log") -RedirectStandardOutput (Join-Path $OutputDirectory "tun-core-stdout.log")
+    try {
+      Start-Sleep -Seconds 3
+      $test = [Net.Sockets.TcpClient]::new()
+      try { [void]$test.ConnectAsync("93.184.215.14", 15555).Wait(6000) } catch { }
+      $test.Dispose()
+    } finally {
+      if (-not $debugCore.HasExited) { Stop-Process -Id $debugCore.Id -Force }
+    }
+  }
+  throw $failure
 } finally {
   foreach ($process in @($client, $fixture, $server)) {
     if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }

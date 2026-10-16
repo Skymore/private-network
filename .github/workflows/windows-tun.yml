@@ -2,12 +2,19 @@ name: Windows global mode
 
 on:
   workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Reuse an installer from a previous Windows global-mode run
+        required: false
+        default: ""
+        type: string
   push:
     branches: [main]
     paths: ["client/**", "scripts/smoke/*tun*", ".github/workflows/windows-tun.yml"]
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   windows-tun:
@@ -22,20 +29,27 @@ jobs:
         with:
           node-version: "22.17.0"
       - name: Install Rust
+        if: inputs.source_run_id == ''
         shell: bash
         run: rustup default 1.90.0
       - uses: Swatinem/rust-cache@v2
+        if: inputs.source_run_id == ''
         with:
           workspaces: client/src-tauri -> ../../target/cargo
           save-if: "true"
           cache-on-failure: true
-      - name: Build Windows installer and test runtime
+      - name: Prepare fixture binaries
         working-directory: client
         shell: pwsh
         run: |
           npm ci
           npm run prepare:xray
           npm run prepare:tun
+      - name: Build Windows installer and test runtime
+        if: inputs.source_run_id == ''
+        working-directory: client
+        shell: pwsh
+        run: |
           cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
           if ($LASTEXITCODE -ne 0) { throw "Rust tests failed" }
           $env:SING_BOX_TEST_BINARY = (Resolve-Path src-tauri/binaries/sing-box-x86_64-pc-windows-msvc.exe).Path
@@ -44,12 +58,23 @@ jobs:
           node node_modules/@tauri-apps/cli/tauri.js build --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "Windows build failed" }
       - name: Collect installer and upstream source
-        if: success()
+        if: success() && inputs.source_run_id == ''
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path windows-download -Force | Out-Null
           Copy-Item target/cargo/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe windows-download/Private-Network-Connect-0.2.0-Windows-x64.exe
           Invoke-WebRequest https://github.com/SagerNet/sing-box/archive/refs/tags/v1.14.3.tar.gz -OutFile windows-download/sing-box-1.14.3-source.tar.gz
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: inputs.source_run_id != ''
+        with:
+          name: windows-tun-acceptance
+          path: reused-installer
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+      - name: Select reused installer
+        if: inputs.source_run_id != ''
+        shell: pwsh
+        run: Copy-Item reused-installer/windows-download windows-download -Recurse
       - name: Install and exercise actual global client
         shell: pwsh
         run: |
