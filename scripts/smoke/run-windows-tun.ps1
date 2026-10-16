@@ -98,6 +98,13 @@ try {
   $client = Start-Tunnel 35 $stateFile
   if (-not (Get-NetRoute -InterfaceAlias "PrivateNetwork" -ErrorAction SilentlyContinue)) { throw "No TUN routes installed" }
 
+  Clear-DnsClientCache
+  $answers = @(Resolve-DnsName "www.nexon.com" -Type A -DnsOnly -ErrorAction Stop | Where-Object IPAddress)
+  if ($answers.Count -eq 0) { throw "Tunnel DNS resolution failed" }
+  $proof.dns = $true
+  Write-Host "Native Windows DNS over TUN passed"
+  Find-NetRoute -RemoteIPAddress "93.184.215.14" | Select-Object InterfaceAlias, InterfaceIndex, IPAddress, DestinationPrefix, NextHop, RouteMetric | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory "selected-route.json")
+
   # These raw sockets do not use HTTP/SOCKS or Windows system proxy settings.
   $tcp = [Net.Sockets.TcpClient]::new()
   $task = $tcp.ConnectAsync("93.184.215.14", 15555)
@@ -107,6 +114,7 @@ try {
   if ($reader.ReadLine() -ne "private-network-tun-tcp") { throw "TCP bypassed the test node" }
   $reader.Dispose(); $tcp.Dispose()
   $proof.tcp = $true
+  Write-Host "Raw TCP over TUN passed"
 
   $udp = [Net.Sockets.UdpClient]::new()
   $udp.Client.ReceiveTimeout = 10000
@@ -118,11 +126,7 @@ try {
   $udp.Dispose()
   if ($response -ne "private-network-tun-udp:acceptance") { throw "UDP bypassed the test node" }
   $proof.udp = $true
-
-  Clear-DnsClientCache
-  $answers = @(Resolve-DnsName "www.nexon.com" -Type A -DnsOnly -ErrorAction Stop | Where-Object IPAddress)
-  if ($answers.Count -eq 0) { throw "Tunnel DNS resolution failed" }
-  $proof.dns = $true
+  Write-Host "Raw UDP over TUN passed"
   if (-not $client.WaitForExit(60000)) { throw "Normal disconnect timed out" }
   if ($client.ExitCode -ne 0) { throw "Normal disconnect failed" }
   $final = Get-Content $stateFile -Raw | ConvertFrom-Json
@@ -138,6 +142,7 @@ try {
   $proof | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory "results.json") -Encoding utf8
 } catch {
   $failure = $_
+  $proof | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory "results.json") -Encoding utf8
   Get-NetRoute | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutputDirectory "routes.json")
   Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, ifIndex | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory "adapters.json")
   $runtimeConfig = Join-Path $env:APPDATA "com.sky.realityclient/runtime/xray-config.json"
