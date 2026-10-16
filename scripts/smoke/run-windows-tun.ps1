@@ -12,6 +12,7 @@ $server = $null
 $fixture = $null
 $client = $null
 $installLocation = $null
+$handshakeRoute = $null
 $proof = [ordered]@{ tcp = $false; udp = $false; dns = $false; normalCleanup = $false; crashCleanup = $false }
 
 function Assert-NoTunnel {
@@ -61,7 +62,11 @@ try {
   if (-not (Test-Path $binary)) { throw "Installed client is missing" }
   if (-not (Test-Path (Join-Path $installLocation "sing-box.exe"))) { throw "Installer omitted TUN core" }
   & scripts/smoke/run-connect-headless.ps1 -Binary $binary
-  $interface = Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort-Object RouteMetric | Select-Object -First 1 -ExpandProperty InterfaceAlias
+  $physicalRoute = Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort-Object RouteMetric | Select-Object -First 1
+  $interface = $physicalRoute.InterfaceAlias
+  $targetIp = Resolve-DnsName "www.microsoft.com" -Type A -DnsOnly | Where-Object IPAddress | Select-Object -First 1 -ExpandProperty IPAddress
+  # The same-machine REALITY server needs a physical path to its handshake target.
+  $handshakeRoute = New-NetRoute -DestinationPrefix "$targetIp/32" -InterfaceIndex $physicalRoute.InterfaceIndex -NextHop $physicalRoute.NextHop -RouteMetric 1 -PolicyStore ActiveStore
   $keys = & $xray x25519
   $private = [regex]::Match(($keys -join "`n"), '(?m)^PrivateKey:\s*(\S+)').Groups[1].Value
   $public = [regex]::Match(($keys -join "`n"), '(?m)^(?:Password[^:]*|PublicKey):\s*(\S+)').Groups[1].Value
@@ -73,7 +78,7 @@ try {
       listen = "127.0.0.1"; port = 15443; protocol = "vless"
       settings = @{ clients = @(@{ id = $uuid; flow = "xtls-rprx-vision" }); decryption = "none" }
       streamSettings = @{ network = "raw"; security = "reality"; realitySettings = @{
-        target = "www.microsoft.com:443"; serverNames = @("www.microsoft.com"); privateKey = $private; shortIds = @("12345678")
+        target = "${targetIp}:443"; serverNames = @("www.microsoft.com"); privateKey = $private; shortIds = @("12345678")
       } }
     })
     outbounds = @(
@@ -134,6 +139,7 @@ try {
   foreach ($process in @($client, $fixture, $server)) {
     if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
   }
+  if ($handshakeRoute) { $handshakeRoute | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }
   if ($installLocation -and (Test-Path $installLocation)) {
     $uninstaller = Get-ChildItem $installLocation -Filter "uninstall*.exe" | Select-Object -First 1
     if ($uninstaller) { Start-Process $uninstaller.FullName -ArgumentList "/S" -Wait | Out-Null }

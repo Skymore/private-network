@@ -40,7 +40,8 @@ Windows. `run-windows-tun.ps1` starts a local REALITY server whose public test a
 maps to a local TCP/UDP fixture. Raw sockets access that address without proxy APIs.
 It also checks Windows DNS resolution through the tunnel, normal disconnect,
 forced application termination and route cleanup. The test REALITY server binds its
-internet outbound to the physical interface so it cannot loop through its client.
+internet outbound to the physical interface and installs a temporary host route for
+its REALITY handshake target so it cannot loop through its client.
 Ephemeral fixture credentials are discarded after the test.
 
 These tests validate transport and cleanup. They do not run GMS or its anti-cheat.
