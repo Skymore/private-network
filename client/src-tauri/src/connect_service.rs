@@ -380,8 +380,9 @@ impl ConnectService {
             return Err(connect_error("connect_bundle_offline_expired"));
         }
         self.probe_nodes_locked().await?;
+        let restart = explicit_connect_needs_restart(&self.supervisor.snapshot()?, proxy_mode);
         let decision = self
-            .apply_selection(app, monotonic_now, proxy_mode, false, true)
+            .apply_selection(app, monotonic_now, proxy_mode, restart, true)
             .await?;
         if proxy_mode == ProxyMode::Tun {
             if let Some(node_id) = decision.node_id {
@@ -656,6 +657,10 @@ fn refresh_recovery(runtime: &ClientState, modified: bool) -> Option<(ProxyMode,
     (modified || failed).then_some((mode, true))
 }
 
+fn explicit_connect_needs_restart(runtime: &ClientState, mode: ProxyMode) -> bool {
+    runtime.phase != crate::state::ClientPhase::Connected || runtime.mode != Some(mode)
+}
+
 fn offline_deadline_elapsed(deadline: Timestamp, now: Timestamp) -> bool {
     deadline.as_datetime() <= now.as_datetime()
 }
@@ -785,6 +790,19 @@ mod tests {
             encrypted_payload_digest: format!("sha256:{}", "0".repeat(64)).parse().unwrap(),
             priority,
         }
+    }
+
+    #[test]
+    fn explicit_reconnect_restarts_the_same_node_after_stop_failure_or_mode_change() {
+        let mut runtime = ClientState::disconnected(10_808, 10_809);
+        runtime.active_profile_id = Some(NodeId::new().to_string());
+        runtime.mode = Some(ProxyMode::Tun);
+        assert!(explicit_connect_needs_restart(&runtime, ProxyMode::Tun));
+        runtime.phase = crate::state::ClientPhase::Failed;
+        assert!(explicit_connect_needs_restart(&runtime, ProxyMode::Tun));
+        runtime.phase = crate::state::ClientPhase::Connected;
+        assert!(!explicit_connect_needs_restart(&runtime, ProxyMode::Tun));
+        assert!(explicit_connect_needs_restart(&runtime, ProxyMode::System));
     }
 
     #[test]
