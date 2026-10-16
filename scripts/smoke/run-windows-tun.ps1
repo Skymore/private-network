@@ -12,7 +12,6 @@ $server = $null
 $fixture = $null
 $client = $null
 $installLocation = $null
-$handshakeRoute = $null
 $proof = [ordered]@{ tcp = $false; udp = $false; dns = $false; normalCleanup = $false; crashCleanup = $false }
 
 function Assert-NoTunnel {
@@ -64,9 +63,10 @@ try {
   & scripts/smoke/run-connect-headless.ps1 -Binary $binary
   $physicalRoute = Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort-Object RouteMetric | Select-Object -First 1
   $interface = $physicalRoute.InterfaceAlias
-  $targetIp = Resolve-DnsName "www.microsoft.com" -Type A -DnsOnly | Where-Object IPAddress | Select-Object -First 1 -ExpandProperty IPAddress
-  # The same-machine REALITY server needs a physical path to its handshake target.
-  $handshakeRoute = New-NetRoute -DestinationPrefix "$targetIp/32" -InterfaceIndex $physicalRoute.InterfaceIndex -NextHop $physicalRoute.NextHop -RouteMetric 1 -PolicyStore ActiveStore
+  $env:TUN_FIXTURE_CERT = Join-Path $work "tls-cert.pem"
+  $env:TUN_FIXTURE_KEY = Join-Path $work "tls-key.pem"
+  & "C:/Program Files/Git/usr/bin/openssl.exe" req -x509 -newkey rsa:2048 -nodes -keyout $env:TUN_FIXTURE_KEY -out $env:TUN_FIXTURE_CERT -days 1 -subj "/CN=www.example.com" 2>$null
+  if ($LASTEXITCODE -ne 0) { throw "Cannot create local TLS fixture" }
   $keys = & $xray x25519
   $private = [regex]::Match(($keys -join "`n"), '(?m)^PrivateKey:\s*(\S+)').Groups[1].Value
   $public = [regex]::Match(($keys -join "`n"), '(?m)^(?:Password[^:]*|PublicKey):\s*(\S+)').Groups[1].Value
@@ -78,7 +78,7 @@ try {
       listen = "127.0.0.1"; port = 15443; protocol = "vless"
       settings = @{ clients = @(@{ id = $uuid; flow = "xtls-rprx-vision" }); decryption = "none" }
       streamSettings = @{ network = "raw"; security = "reality"; realitySettings = @{
-        target = "${targetIp}:443"; serverNames = @("www.microsoft.com"); privateKey = $private; shortIds = @("12345678")
+        target = "127.0.0.1:15444"; serverNames = @("www.example.com"); privateKey = $private; shortIds = @("12345678")
       } }
     })
     outbounds = @(
@@ -89,10 +89,11 @@ try {
   }
   $serverConfig = Join-Path $work "server.json"
   $config | ConvertTo-Json -Depth 15 | Set-Content $serverConfig -Encoding utf8
-  $server = Start-Process $xray -ArgumentList "run", "-config", $serverConfig -PassThru -RedirectStandardError (Join-Path $OutputDirectory "xray-stderr.log") -RedirectStandardOutput (Join-Path $OutputDirectory "xray-stdout.log")
   $fixture = Start-Process python -ArgumentList "scripts/smoke/windows-tun-fixture.py" -PassThru
   Start-Sleep -Seconds 2
-  $invitation = "vless://${uuid}@127.0.0.1:15443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=${public}&sid=12345678&type=tcp#Acceptance"
+  $server = Start-Process $xray -ArgumentList "run", "-config", $serverConfig -PassThru -RedirectStandardError (Join-Path $OutputDirectory "xray-stderr.log") -RedirectStandardOutput (Join-Path $OutputDirectory "xray-stdout.log")
+  Start-Sleep -Seconds 2
+  $invitation = "vless://${uuid}@127.0.0.1:15443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.example.com&fp=chrome&pbk=${public}&sid=12345678&type=tcp#Acceptance"
   $stateFile = Join-Path $work "connected.json"
   $client = Start-Tunnel 35 $stateFile
   if (-not (Get-NetRoute -InterfaceAlias "PrivateNetwork" -ErrorAction SilentlyContinue)) { throw "No TUN routes installed" }
@@ -161,7 +162,6 @@ try {
   foreach ($process in @($client, $fixture, $server)) {
     if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
   }
-  if ($handshakeRoute) { $handshakeRoute | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }
   if ($installLocation -and (Test-Path $installLocation)) {
     $uninstaller = Get-ChildItem $installLocation -Filter "uninstall*.exe" | Select-Object -First 1
     if ($uninstaller) { Start-Process $uninstaller.FullName -ArgumentList "/S" -Wait | Out-Null }
