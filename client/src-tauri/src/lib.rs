@@ -14,6 +14,8 @@ pub mod session;
 mod state;
 mod system_proxy;
 pub mod vault;
+#[cfg(windows)]
+mod windows_process;
 
 use core::config::{build_xray_config, DEFAULT_HTTP_PORT, DEFAULT_SOCKS_PORT};
 use core::invite::{parse_invitation, InvitationPreview};

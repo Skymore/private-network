@@ -38,6 +38,7 @@ import {
   type ConnectSnapshot,
   type SafeNode,
   type SetupSession,
+  type ProxyMode,
 } from "./api"
 import { connectCopy, initialLocale, type Locale } from "./locale"
 
@@ -57,6 +58,10 @@ function formatDate(value: string | null | undefined, language: Locale) {
 }
 
 function App() {
+  const isWindows = navigator.userAgent.includes("Windows")
+  const [proxyMode, setProxyMode] = useState<ProxyMode>(() =>
+    isWindows && localStorage.getItem("proxyMode") !== "system" ? "tun" : "system",
+  )
   const [language, setLanguage] = useState<Locale>(initialLocale)
   const [snapshot, setSnapshot] = useState<ConnectSnapshot | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -223,7 +228,7 @@ function App() {
             <span className="orbit orbit-one" /><span className="orbit orbit-two" /><span className="orbit orbit-three" />
             <button
               className="power-button"
-              onClick={() => void run(connected ? "disconnect" : "connect", connected ? disconnect : () => connect("system"))}
+              onClick={() => void run(connected ? "disconnect" : "connect", connected ? disconnect : () => connect(proxyMode))}
               disabled={busy !== null || changing || !snapshot.bundle?.nodes.length}
             >
               {busy === "connect" || busy === "disconnect" || changing ? <LoaderCircle className="spin" /> : connected ? <Unplug /> : <Power />}
@@ -243,7 +248,7 @@ function App() {
 
         <section className="status-strip">
           <StatusItem icon={<Route />} label={t.connection.route} value={selectedNode ? (selectedNode.endpointMode === "relay" ? t.connection.managedRelay : t.connection.direct) : t.connection.automatic} />
-          <StatusItem icon={<Globe2 />} label={t.connection.systemAccess} value={connected && snapshot.runtime.mode === "system" ? t.connection.enabled : t.connection.off} />
+          <StatusItem icon={<Globe2 />} label={t.connection.accessMode} value={(snapshot.runtime.mode ?? proxyMode) === "tun" ? t.connection.globalAccess : t.connection.systemAccess} />
           <StatusItem icon={<Gauge />} label={t.connection.bundle} value={t.connection.generation(snapshot.bundle?.generation ?? 0)} />
         </section>
 
@@ -281,7 +286,8 @@ function App() {
         <div className="modal-backdrop" onMouseDown={() => setSettingsOpen(false)}>
           <section className="modal" onMouseDown={(event) => event.stopPropagation()}>
             <div className="section-heading"><div><p className="eyebrow">{t.settings.thisDevice}</p><h2>{t.settings.title}</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)}>×</button></div>
-            <div className="setting-row"><div><strong>{t.settings.systemWide}</strong><span>{t.settings.systemWideDescription}</span></div><span className="badge">{t.settings.default}</span></div>
+            {isWindows && <div className="setting-row"><div><strong>{t.settings.globalMode}</strong><span>{t.settings.globalDescription}</span></div><input type="checkbox" aria-label={t.settings.globalMode} checked={proxyMode === "tun"} disabled={connected || changing || busy !== null} onChange={(event) => { const next = event.target.checked ? "tun" : "system"; localStorage.setItem("proxyMode", next); setProxyMode(next) }} /></div>}
+            <div className="setting-row"><div><strong>{proxyMode === "tun" ? t.settings.gameMode : t.settings.systemWide}</strong><span>{proxyMode === "tun" ? t.settings.gameDescription : t.settings.systemWideDescription}</span></div><span className="badge">{t.settings.default}</span></div>
             <div className="setting-row"><div><strong>{t.settings.localProxy}</strong><span>{t.settings.localProxyDescription}</span></div><code>{snapshot.runtime.endpoints.socks}</code></div>
             <div className="logout-box">
               {!logoutConfirm ? <button className="logout-button" onClick={() => setLogoutConfirm(true)}><LogOut /> {t.settings.remove}</button> : <><p>{t.settings.removeDescription}</p><div className="button-row"><button className="secondary" onClick={() => setLogoutConfirm(false)}>{t.settings.cancel}</button><button className="danger" onClick={() => void removeAccount()} disabled={busy !== null}>{busy === "logout" ? <LoaderCircle className="spin" /> : null}{t.settings.confirmRemove}</button></div></>}

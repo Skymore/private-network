@@ -28,6 +28,9 @@ esac
 case "$PRODUCT" in
   connect)
     OUT="$ROOT/client/src-tauri/binaries/xray-$TARGET$EXT"
+    if [ "$TARGET" = x86_64-pc-windows-msvc ]; then
+      npm --prefix "$ROOT/client" run prepare:tun -- --target="$TARGET"
+    fi
     ;;
   node-host)
     OUT_DIR="$ROOT/node-host-app/src-tauri/binaries"

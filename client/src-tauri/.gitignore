@@ -7,3 +7,5 @@
 # Downloaded release sidecars
 /binaries/xray-*
 /binaries/sidecars-*
+/binaries/sing-box-*
+/binaries/tun-notices/

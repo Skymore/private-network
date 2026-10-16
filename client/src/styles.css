@@ -44,6 +44,7 @@ textarea, input { width: 100%; border: 1px solid var(--line); border-radius: 13p
 textarea:focus, input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,109,72,.1); }
 textarea { min-height: 120px; resize: vertical; padding: 14px; margin: 14px 0; font: 12px/1.5 ui-monospace, monospace; }
 input { padding: 12px; }
+input[type="checkbox"] { width: 20px; height: 20px; flex: 0 0 20px; accent-color: var(--green); padding: 0; }
 .primary, .secondary, .danger { min-height: 43px; padding: 0 17px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; font-weight: 700; }
 .primary { color: white; background: var(--ink); }
 .secondary { color: var(--ink); background: transparent; border-color: var(--line); }

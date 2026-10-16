@@ -33,6 +33,7 @@ pub enum ClientPhase {
 pub enum ProxyMode {
     Manual,
     System,
+    Tun,
 }
 
 impl ClientState {

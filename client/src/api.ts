@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 
 export type ClientPhase = "disconnected" | "starting" | "connected" | "stopping" | "failed"
-export type ProxyMode = "manual" | "system"
+export type ProxyMode = "manual" | "system" | "tun"
 
 export type ClientState = {
   phase: ClientPhase

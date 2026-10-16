@@ -380,8 +380,20 @@ impl ConnectService {
             return Err(connect_error("connect_bundle_offline_expired"));
         }
         self.probe_nodes_locked().await?;
-        self.apply_selection(app, monotonic_now, proxy_mode, false, true)
+        let decision = self
+            .apply_selection(app, monotonic_now, proxy_mode, false, true)
             .await?;
+        if proxy_mode == ProxyMode::Tun {
+            if let Some(node_id) = decision.node_id {
+                // Keep the exit IP stable for the lifetime of a game session.
+                let mut inner = self.inner.lock().await;
+                let mode = SelectionMode::Manual(node_id);
+                if let Some(selector) = inner.selector.as_mut() {
+                    selector.set_mode(mode.clone())?;
+                }
+                inner.mode = mode;
+            }
+        }
         self.snapshot_locked().await
     }
 

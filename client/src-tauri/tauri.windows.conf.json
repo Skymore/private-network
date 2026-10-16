@@ -1,6 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
+    "externalBin": ["binaries/xray", "binaries/sing-box"],
+    "resources": { "binaries/tun-notices/": "licenses/sing-box/" },
     "targets": ["nsis"],
     "windows": {
       "allowDowngrades": false,

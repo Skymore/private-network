@@ -1,5 +1,6 @@
 use crate::core::config::{build_xray_config, DEFAULT_HTTP_PORT, DEFAULT_SOCKS_PORT};
 use crate::core::connection::ConnectionProfile;
+use crate::core::tun::build_tun_config;
 use crate::error::ClientError;
 use crate::state::{ClientPhase, ClientState, ProxyMode};
 use crate::system_proxy::SystemProxyManager;
@@ -31,6 +32,8 @@ struct SupervisorInner {
     child: Option<CommandChild>,
     config_path: Option<PathBuf>,
     generation: u64,
+    #[cfg(windows)]
+    job: Option<crate::windows_process::WindowsChildJob>,
 }
 
 impl XraySupervisor {
@@ -53,6 +56,8 @@ impl XraySupervisor {
                 child: None,
                 config_path: None,
                 generation: 0,
+                #[cfg(windows)]
+                job: None,
             })),
             runtime_dir,
             system_proxy,
@@ -80,6 +85,17 @@ impl XraySupervisor {
         if let Some(state) = self.active_connection(&profile_id, mode)? {
             return Ok(state);
         }
+        if mode == ProxyMode::Tun && !cfg!(windows) {
+            return Err(ClientError::internal(
+                "tun_platform_unsupported",
+                "全局模式目前支持 Windows。",
+            ));
+        }
+        let profile = if mode == ProxyMode::Tun {
+            resolve_tunnel_endpoint(profile).await?
+        } else {
+            profile
+        };
         let generation = self.begin_start(profile_id, mode)?;
         if let Err(error) = ensure_port_available(DEFAULT_SOCKS_PORT)
             .and_then(|_| ensure_port_available(DEFAULT_HTTP_PORT))
@@ -89,13 +105,26 @@ impl XraySupervisor {
         }
         let config_path = self.runtime_dir.join("xray-config.json");
 
-        if let Err(error) = write_runtime_config(&config_path, &profile) {
+        if let Err(error) = write_runtime_config_for_mode(&config_path, &profile, mode) {
             self.fail(generation, &error);
             return Err(error);
         }
 
-        let command = match app.shell().sidecar("xray") {
-            Ok(command) => command.args(["run", "-config", &config_path.to_string_lossy()]),
+        let sidecar = if mode == ProxyMode::Tun {
+            "sing-box"
+        } else {
+            "xray"
+        };
+        let command = match app.shell().sidecar(sidecar) {
+            Ok(command) => command.args([
+                "run",
+                if mode == ProxyMode::Tun {
+                    "--config"
+                } else {
+                    "-config"
+                },
+                &config_path.to_string_lossy(),
+            ]),
             Err(_) => {
                 let error = process_error("xray_sidecar_unavailable");
                 let _ = fs::remove_file(&config_path);
@@ -115,6 +144,7 @@ impl XraySupervisor {
 
         if let Err(error) = self.attach_child(generation, child, config_path.clone()) {
             let _ = fs::remove_file(config_path);
+            self.fail(generation, &error);
             return Err(error);
         }
         let monitor = self.clone();
@@ -176,6 +206,8 @@ impl XraySupervisor {
                 .map_err(|_| process_error("client_state_unavailable"))?;
             let already_disconnected = inner.state.phase == ClientPhase::Disconnected;
             inner.generation = inner.generation.wrapping_add(1);
+            #[cfg(windows)]
+            drop(inner.job.take());
             if !already_disconnected {
                 inner.state.phase = ClientPhase::Stopping;
             }
@@ -204,6 +236,8 @@ impl XraySupervisor {
                 .lock()
                 .map_err(|_| process_error("client_state_unavailable"))?;
             inner.generation = inner.generation.wrapping_add(1);
+            #[cfg(windows)]
+            drop(inner.job.take());
             inner.state.phase = ClientPhase::Stopping;
             (inner.child.take(), inner.config_path.take())
         };
@@ -255,6 +289,14 @@ impl XraySupervisor {
         child: CommandChild,
         config_path: PathBuf,
     ) -> Result<(), ClientError> {
+        #[cfg(windows)]
+        let job = match crate::windows_process::WindowsChildJob::attach(child.pid()) {
+            Ok(job) => job,
+            Err(error) => {
+                let _ = child.kill();
+                return Err(error);
+            }
+        };
         let mut inner = self
             .inner
             .lock()
@@ -265,6 +307,10 @@ impl XraySupervisor {
         }
         inner.child = Some(child);
         inner.config_path = Some(config_path);
+        #[cfg(windows)]
+        {
+            inner.job = Some(job);
+        }
         Ok(())
     }
 
@@ -296,6 +342,8 @@ impl XraySupervisor {
                 return;
             }
             inner.generation = inner.generation.wrapping_add(1);
+            #[cfg(windows)]
+            drop(inner.job.take());
             inner.state.phase = ClientPhase::Failed;
             inner.state.error_code = Some(error.code.clone());
             inner.state.error_message = Some(error.message.clone());
@@ -316,6 +364,8 @@ impl XraySupervisor {
                 return;
             }
             inner.child = None;
+            #[cfg(windows)]
+            drop(inner.job.take());
             inner.state.phase = ClientPhase::Failed;
             inner.state.error_code = Some("xray_exited_unexpectedly".to_string());
             inner.state.error_message = Some("Xray stopped unexpectedly.".to_string());
@@ -430,8 +480,16 @@ fn ports_ready(socks_port: u16, http_port: u16) -> bool {
         && TcpStream::connect(("127.0.0.1", http_port)).is_ok()
 }
 
-fn write_runtime_config(path: &Path, profile: &ConnectionProfile) -> Result<(), ClientError> {
-    let config = build_xray_config(profile, DEFAULT_SOCKS_PORT, DEFAULT_HTTP_PORT);
+fn write_runtime_config_for_mode(
+    path: &Path,
+    profile: &ConnectionProfile,
+    mode: ProxyMode,
+) -> Result<(), ClientError> {
+    let config = if mode == ProxyMode::Tun {
+        build_tun_config(profile)
+    } else {
+        build_xray_config(profile, DEFAULT_SOCKS_PORT, DEFAULT_HTTP_PORT)
+    };
     let bytes = serde_json::to_vec_pretty(&config).map_err(|_| process_error("config_failed"))?;
     let parent = path
         .parent()
@@ -449,6 +507,24 @@ fn write_runtime_config(path: &Path, profile: &ConnectionProfile) -> Result<(), 
         .map_err(|_| process_error("config_write_failed"))
 }
 
+async fn resolve_tunnel_endpoint(
+    mut profile: ConnectionProfile,
+) -> Result<ConnectionProfile, ClientError> {
+    let addresses = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::net::lookup_host((profile.server_address.as_str(), profile.server_port)),
+    )
+    .await
+    .map_err(|_| process_error("tun_endpoint_resolution_failed"))?
+    .map_err(|_| process_error("tun_endpoint_resolution_failed"))?;
+    let address = addresses
+        .into_iter()
+        .next()
+        .ok_or_else(|| process_error("tun_endpoint_resolution_failed"))?;
+    profile.server_address = address.ip().to_string();
+    Ok(profile)
+}
+
 #[cfg(unix)]
 fn set_owner_only_permissions(path: &Path) -> Result<(), ClientError> {
     use std::os::unix::fs::PermissionsExt;
@@ -463,10 +539,11 @@ fn set_owner_only_permissions(_path: &Path) -> Result<(), ClientError> {
 
 fn process_error(code: &str) -> ClientError {
     let message = match code {
-        "xray_sidecar_unavailable" => "The bundled Xray core is unavailable.",
-        "xray_start_timeout" => "Xray did not open its local proxy ports in time.",
-        "xray_exited_during_start" => "Xray exited before the local proxy became ready.",
-        _ => "The Xray process operation failed.",
+        "xray_sidecar_unavailable" => "The bundled network core is unavailable. Reinstall Connect.",
+        "xray_start_timeout" => "Network startup timed out. For global mode, approve administrator access and close other VPN apps.",
+        "xray_exited_during_start" => "Network startup failed. For global mode, approve administrator access and close other VPN apps.",
+        "tun_endpoint_resolution_failed" => "无法解析节点地址，请检查网络后重试。",
+        _ => "The network process operation failed.",
     };
     ClientError::internal(code, message)
 }

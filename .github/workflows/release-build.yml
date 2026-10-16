@@ -122,7 +122,9 @@ jobs:
           rustup default "$RUST_TOOLCHAIN"
       - name: Prepare verified Connect sidecar
         shell: bash
-        run: scripts/release/prepare-sidecars.sh --product connect --target x86_64-pc-windows-msvc
+        run: |
+          npm --prefix client ci
+          scripts/release/prepare-sidecars.sh --product connect --target x86_64-pc-windows-msvc
       - name: Compile Connect Windows boundary
         shell: bash
         run: cargo check --locked --manifest-path client/src-tauri/Cargo.toml
@@ -236,6 +238,9 @@ jobs:
       - name: Validate release and secret configuration
         shell: bash
         run: python3 scripts/release/verify-release-config.py --target "${{ matrix.release_target }}" --mode "$MODE" --scope artifact --output "$RUNNER_TEMP/signing-config.json"
+      - name: Install frontend build dependencies
+        working-directory: ${{ matrix.project }}
+        run: npm ci
       - name: Prepare verified sidecars
         shell: bash
         run: |
@@ -244,9 +249,6 @@ jobs:
           ext=""; [[ "${{ matrix.platform }}" == windows ]] && ext=.exe
           cp "${{ matrix.project }}/src-tauri/binaries/xray-${{ matrix.triple }}$ext" "$RUNNER_TEMP/xray-bin/xray$ext"
           echo "$RUNNER_TEMP/xray-bin" >> "$GITHUB_PATH"
-      - name: Install frontend build dependencies
-        working-directory: ${{ matrix.project }}
-        run: npm ci
       - name: Sign Windows inner executable and sidecar before bundling
         if: matrix.platform == 'windows'
         shell: pwsh

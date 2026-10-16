@@ -1,6 +1,5 @@
 //! Closed headless command path for installed-artifact operations and acceptance.
 
-use crate::connect_service::ConnectSnapshot;
 use crate::error::ClientError;
 use crate::member_setup::SetupSessionStore;
 use crate::runtime::ConnectRuntimeRegistry;
@@ -90,6 +89,7 @@ impl HeadlessRequest {
                 }
             }
             HeadlessOperation::Connect { hold_seconds, .. }
+            | HeadlessOperation::ProxyConnect { hold_seconds, .. }
                 if !(1..=MAX_HOLD_SECONDS).contains(hold_seconds) =>
             {
                 return Err(headless_error("headless_hold_invalid"));
@@ -119,6 +119,11 @@ enum HeadlessOperation {
         selection: SelectionMode,
         proxy_mode: ProxyMode,
         refresh_first: bool,
+        hold_seconds: u16,
+    },
+    ProxyConnect {
+        invitation: HeadlessSetupCode,
+        proxy_mode: ProxyMode,
         hold_seconds: u16,
     },
     Stop {},
@@ -242,15 +247,35 @@ pub async fn execute(app: AppHandle, invocation: HeadlessInvocation) {
             let exit = response.and_then(|value| output.write(&value)).is_err();
             app.exit(i32::from(exit));
         }
-        Ok(HeadlessExecution::Hold { snapshot, duration }) => {
-            let ready = HeadlessResponse::success(false, snapshot.as_ref());
+        Ok(HeadlessExecution::Hold {
+            snapshot,
+            duration,
+            account,
+        }) => {
+            let ready = HeadlessResponse::success(false, &snapshot);
             if ready.and_then(|value| output.write(&value)).is_err() {
                 app.exit(1);
                 return;
             }
             tokio::time::sleep(duration).await;
-            let runtime = app.state::<ConnectRuntimeRegistry>();
-            match runtime.stop().await {
+            let stopped = if account {
+                app.state::<ConnectRuntimeRegistry>()
+                    .stop()
+                    .await
+                    .and_then(|state| {
+                        serde_json::to_value(state)
+                            .map_err(|_| headless_error("headless_output_serialize_failed"))
+                    })
+            } else {
+                app.state::<crate::process::XraySupervisor>()
+                    .stop()
+                    .await
+                    .and_then(|state| {
+                        serde_json::to_value(state)
+                            .map_err(|_| headless_error("headless_output_serialize_failed"))
+                    })
+            };
+            match stopped {
                 Ok(stopped) => {
                     let response = HeadlessResponse::success(true, &stopped);
                     let exit = response.and_then(|value| output.write(&value)).is_err();
@@ -272,8 +297,9 @@ pub async fn execute(app: AppHandle, invocation: HeadlessInvocation) {
 enum HeadlessExecution {
     Complete(Value),
     Hold {
-        snapshot: Box<ConnectSnapshot>,
+        snapshot: Value,
         duration: Duration,
+        account: bool,
     },
 }
 
@@ -326,8 +352,27 @@ async fn execute_operation(
             runtime.set_selection(selection).await?;
             let snapshot = runtime.connect(app, proxy_mode).await?;
             return Ok(HeadlessExecution::Hold {
-                snapshot: Box::new(snapshot),
+                snapshot: serde_json::to_value(snapshot)
+                    .map_err(|_| headless_error("headless_output_serialize_failed"))?,
                 duration: Duration::from_secs(u64::from(hold_seconds)),
+                account: true,
+            });
+        }
+        HeadlessOperation::ProxyConnect {
+            invitation,
+            proxy_mode,
+            hold_seconds,
+        } => {
+            let profile = crate::core::invite::parse_invitation(invitation.expose())?;
+            let snapshot = app
+                .state::<crate::process::XraySupervisor>()
+                .start(app, "compatibility".to_string(), profile, proxy_mode)
+                .await?;
+            return Ok(HeadlessExecution::Hold {
+                snapshot: serde_json::to_value(snapshot)
+                    .map_err(|_| headless_error("headless_output_serialize_failed"))?,
+                duration: Duration::from_secs(u64::from(hold_seconds)),
+                account: false,
             });
         }
         HeadlessOperation::Stop {} => runtime.stop().await?,

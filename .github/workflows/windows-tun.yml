@@ -1,0 +1,60 @@
+name: Windows global mode
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["client/**", "scripts/smoke/*tun*", ".github/workflows/windows-tun.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-tun:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/cargo
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.17.0"
+      - name: Install Rust
+        shell: bash
+        run: rustup default 1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri -> ../../target/cargo
+      - name: Build Windows installer and test runtime
+        working-directory: client
+        shell: pwsh
+        run: |
+          npm ci
+          npm run prepare:xray
+          npm run prepare:tun
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+          if ($LASTEXITCODE -ne 0) { throw "Rust tests failed" }
+          npm run tauri -- build --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "Windows build failed" }
+      - name: Install and exercise actual global client
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target/cargo/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe | Select-Object -First 1
+          scripts/smoke/run-windows-tun.ps1 -Installer $installer.FullName -OutputDirectory tun-evidence
+      - name: Collect installer and upstream source
+        if: success()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path windows-download -Force | Out-Null
+          Copy-Item target/cargo/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe windows-download/Private-Network-Connect-0.2.0-Windows-x64.exe
+          Invoke-WebRequest https://github.com/SagerNet/sing-box/archive/refs/tags/v1.14.3.tar.gz -OutFile windows-download/sing-box-1.14.3-source.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-tun-acceptance
+          path: |
+            windows-download/
+            tun-evidence/
+          if-no-files-found: warn

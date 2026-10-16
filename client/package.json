@@ -1,10 +1,11 @@
 {
   "name": "private-network-connect",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "prepare:xray": "node scripts/prepare-xray-sidecar.mjs",
+    "prepare:tun": "node scripts/prepare-tun-sidecar.mjs",
     "prepare:xray:all": "npm run prepare:xray -- --target=aarch64-apple-darwin && npm run prepare:xray -- --target=x86_64-apple-darwin && npm run prepare:xray -- --target=x86_64-pc-windows-msvc",
     "test:sidecar": "node --test scripts/prepare-xray-sidecar.test.mjs",
     "dev": "vite",

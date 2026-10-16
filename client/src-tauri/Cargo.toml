@@ -1,6 +1,6 @@
 [package]
 name = "reality-client"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cross-platform companion client for Private Network"
 authors = ["sky"]
 edition = "2021"
@@ -37,7 +37,7 @@ zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
 keyring = "4.1"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinInet"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinInet", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
 
 [dev-dependencies]
 axum = "0.8"

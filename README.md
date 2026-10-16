@@ -41,13 +41,16 @@ Private Network 将传统的“给每个朋友发一条 VLESS 链接”改成账
 | Windows Connect 构建路径 | 已实现，仍需签名和 clean-machine 验收 |
 | 多节点分配、跨节点禁用/删除、配置版本和回滚 | 已实现 |
 | HTTP/SOCKS 系统代理恢复 | 已实现 |
-| TUN/Network Extension 全设备 VPN | **未实现** |
+| Windows TUN 全局模式（TCP / UDP / DNS） | Connect 0.2.0 起支持 |
+| macOS Network Extension 全设备 VPN | **未实现** |
 | UDP 转发 | **未实现**；当前数据面为 TCP |
 | 公网正式发行包和自动更新 | 尚未通过发布验收 |
 | 商业计费、客服和 SLA | 不在当前范围 |
 
-Connect 当前通过本地 HTTP/SOCKS 代理和操作系统代理设置工作。遵循系统代理的应用会自动走
-Private Network；忽略系统代理的应用、原始 UDP 流量和要求 TUN 的软件不会被强制接管。
+Connect 0.2.0 的 Windows 客户端默认使用 TUN 全局模式，适用于 Nexon Launcher 和 GMS 等
+不遵循系统代理的软件。启动时同意 Windows 管理员授权，先连接再启动游戏。全局模式会固定
+当前节点，保持游戏出口 IP 稳定；局域网直连。设置里可以关闭全局模式，切换前先断开。
+macOS 仍通过系统 HTTP/SOCKS 代理工作，忽略系统代理的软件和 UDP 不会被强制接管。
 
 ## 系统架构
 
